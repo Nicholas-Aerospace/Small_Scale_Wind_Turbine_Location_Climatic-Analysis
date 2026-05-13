@@ -24,8 +24,9 @@ matplotLib:https://matplotlib.org/
 ## Results
 
 ### Some of the Available Wind Averages
-<img width="1506" height="600" alt="1 5m Radius Power" src="https://github.com/user-attachments/assets/348171a2-e305-4f65-81bf-91d2ec8d08db" />
-<img width="1506" height="600" alt="2m Radius 3m Height Power" src="https://github.com/user-attachments/assets/e2500752-0e59-4609-a0f5-1065785d0931" />
-<img width="1504" height="894" alt="Kunayni Wind Analysis" src="https://github.com/user-attachments/assets/ed2e9517-345d-4828-a738-1fa8f7e48d59" />
-<img width="1506" height="500" alt="Kunayni Climate Analysis" src="https://github.com/user-attachments/assets/aa193b79-dc48-4492-ac75-553acb7a4524" />
+<img width="2633" height="1036" alt="hawt_radius_vs_power" src="https://github.com/user-attachments/assets/f43308b4-95bf-4771-9492-f4c648cb2a16" />
+<img width="3014" height="1967" alt="vawt_monthly_heatmap" src="https://github.com/user-attachments/assets/0328ab56-ecde-4997-8c3e-64dd23a9e1d1" />
+<img width="3614" height="2267" alt="vawt_hourly_heatmap" src="https://github.com/user-attachments/assets/266aaefc-15be-442a-8b1a-db0e66ab8d3d" />
+<img width="1504" height="894" alt="Kunayni Wind Analysis" src="https://github.com/user-attachments/assets/a4a1f152-38e3-4d9b-82ea-0c9cae39d33e" />
+<img width="1506" height="500" alt="Kunayni Climate Analysis" src="https://github.com/user-attachments/assets/be0d84da-f8e5-4e6f-b24b-156032fd4205" />
 
