@@ -1,24 +1,22 @@
-import meteostat as ms 
+import meteostat as ms
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from matplotlib.lines import Line2D
 from datetime import date
 import pandas as pd
 import numpy as np
 
 # ── Blade Radius Sweep Configuration ─────────────────────────────────────────
-min_radius  = 0.5   # metres
-max_radius  = 2.5   # metres
-interval    = 0.5   # metres
-# e.g. min=1, max=2, interval=0.5 → runs 1.0m, 1.5m, 2.0m
+min_radius = 0.5    # metres
+max_radius = 5.0    # metres
+n_steps    = 200    # resolution of the radius axis
 
-radii = np.arange(min_radius, max_radius + interval * 0.5, interval)
-# The + interval*0.5 ensures max_radius is always included despite float rounding
+radii = np.linspace(min_radius, max_radius, n_steps)
 
 # ── Meteostat Setup ───────────────────────────────────────────────────────────
 ms.config.block_large_requests = False
-# Allows fetching of data beyond 3 years without being blocked by the server
 
-station_ID = 95979
-# WMO identifier for Kunayni 
+station_ID = 95979   # Kunayni
 
 start = date(2019, 1, 1)
 end   = date(2025, 12, 31)
@@ -39,99 +37,108 @@ ts = ms.hourly(
 
 df = ts.fetch()
 
-# ── Averaging (computed once — independent of blade radius) ───────────────────
-df_avg_year         = df.groupby(df.index.day_of_year).mean()
-df_avg_day_by_month = df.groupby([df.index.month, df.index.hour]).mean()
+# ── Averaging ─────────────────────────────────────────────────────────────────
+# Monthly averages  →  12 rows  (one per calendar month)
+df_monthly = df.groupby(df.index.month)[['wspd', 'pres', 'temp']].mean()
 
+# Hourly averages   →  24 rows  (one per hour of the day, across all years)
+df_hourly  = df.groupby(df.index.hour)[['wspd', 'pres', 'temp']].mean()
+
+# Grand average
 avg_wspd = df['wspd'].mean()
-avg_wdir = df['wdir'].mean()
 avg_temp = df['temp'].mean()
-avg_prcp = df['prcp'].mean()
 avg_pres = df['pres'].mean()
 
 # ── Betz Power Function ───────────────────────────────────────────────────────
-# P = (8/27) * rho * A * v^3
-# rho = P / (Rd * T)  — dry air density
-# A = pi * r^2
-# Note: wspd from meteostat is in km/h — must convert to m/s
-
 Rd = 287.05  # J/(kg·K)
 
 def betz_power(wspd_kmh, pres_hpa, temp_c, blade_radius):
-    """Returns Betz limit power in Watts for a given blade radius (m)."""
-    v   = wspd_kmh / 3.6          # km/h → m/s
-    T   = temp_c + 273.15         # °C → K
-    P   = pres_hpa * 100          # hPa → Pa
-    rho = P / (Rd * T)            # kg/m³
-    A   = np.pi * blade_radius**2 # m²
+    v   = wspd_kmh / 3.6
+    T   = temp_c  + 273.15
+    P   = pres_hpa * 100
+    rho = P / (Rd * T)
+    A   = np.pi * blade_radius**2
     return (8/27) * rho * A * v**3
 
-# ── Month Labels & Colours ────────────────────────────────────────────────────
-month_names = ['Jan','Feb','Mar','Apr','May','Jun',
-               'Jul','Aug','Sep','Oct','Nov','Dec']
-colors = plt.cm.tab20(range(12))
+# ── Precompute power curves ───────────────────────────────────────────────────
+power_by_month = np.array([
+    betz_power(row.wspd, row.pres, row.temp, radii)
+    for _, row in df_monthly.iterrows()
+])
 
-# ── Run Simulation for Each Blade Radius ──────────────────────────────────────
-print(f"\nRunning simulations for radii: {[round(r, 4) for r in radii]} m\n")
+power_by_hour = np.array([
+    betz_power(row.wspd, row.pres, row.temp, radii)
+    for _, row in df_hourly.iterrows()
+])
 
-for r in radii:
-    print(f"  ── Blade radius: {r:.2f} m  (diameter: {r*2:.2f} m) ──")
+power_grand = betz_power(avg_wspd, avg_pres, avg_temp, radii)
 
-    # --- Compute power columns for this radius ---
-    df_avg_year_r         = df_avg_year.copy()
-    df_avg_day_by_month_r = df_avg_day_by_month.copy()
+# ── Plot Labels & Colour Maps ─────────────────────────────────────────────────
+month_names  = ['Jan','Feb','Mar','Apr','May','Jun',
+                'Jul','Aug','Sep','Oct','Nov','Dec']
+month_colors = cm.tab20(np.linspace(0, 1, 12))
+hour_colors  = cm.plasma(np.linspace(0.05, 0.95, 24))
 
-    df_avg_year_r['power'] = betz_power(
-        df_avg_year_r['wspd'],
-        df_avg_year_r['pres'],
-        df_avg_year_r['temp'],
-        r
-    )
+# ── Figure ────────────────────────────────────────────────────────────────────
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
+fig.suptitle(
+    "Kunayni (95979) — Betz Limit Power vs Blade Radius",
+    fontsize=15, fontweight='bold'
+)
 
-    df_avg_day_by_month_r['power'] = betz_power(
-        df_avg_day_by_month_r['wspd'],
-        df_avg_day_by_month_r['pres'],
-        df_avg_day_by_month_r['temp'],
-        r
-    )
+# ── Plot 1: One curve per MONTH ───────────────────────────────────────────────
+for i, name in enumerate(month_names):
+    ax1.plot(radii, power_by_month[i],
+             color=month_colors[i], linewidth=1.8, label=name)
 
-    avg_power = betz_power(avg_wspd, avg_pres, avg_temp, r)
-    print(f"     Grand-average power: {avg_power:.2f} W")
+ax1.plot(radii, power_grand,
+         color='black', linewidth=2.5, linestyle='--',
+         label='Annual Mean', zorder=5)
 
-    # --- Plotting ---
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    fig.suptitle(
-        f"Kunayni (95979) — Betz Limit Wind Power  |  r = {r:.2f} m  (⌀ {r*2:.2f} m)",
-        fontsize=14, fontweight='bold'
-    )
+ax1.set_title("Calendar Month", fontsize=11)
+ax1.set_xlabel("Blade Radius (m)", fontsize=11)
+ax1.set_ylabel("Betz Limit Power (W)", fontsize=11)
+ax1.legend(ncol=2, fontsize=8, loc='upper left', framealpha=0.85)
+ax1.grid(True, alpha=0.3)
+ax1.set_xlim(min_radius, max_radius)
+ax1.set_ylim(bottom=0)
 
-    # Plot 1: Power across the averaged year
-    ax1 = axes[0]
-    ax1.plot(df_avg_year_r.index, df_avg_year_r['power'], color='steelblue', linewidth=1.5)
-    ax1.axhline(avg_power, color='red', linestyle='--', linewidth=1.2,
-                label=f'Annual Mean: {avg_power:.1f} W')
-    ax1.set_title("Max Available Power by Day of Year (2020–2025)")
-    ax1.set_xlabel("Day of Year")
-    ax1.set_ylabel("Power (W)")
-    ax1.legend(fontsize=9)
-    ax1.grid(True, alpha=0.3)
+# Secondary x-axis: diameter
+ax1b = ax1.twiny()
+ax1b.set_xlim(min_radius * 2, max_radius * 2)
+ax1b.set_xlabel("Rotor Diameter (m)", fontsize=10, color='grey')
+ax1b.tick_params(axis='x', colors='grey')
 
-    # Plot 2: Power across the averaged day for each month
-    ax2 = axes[1]
-    for month in range(1, 13):
-        profile = df_avg_day_by_month_r.loc[month]['power']
-        ax2.plot(profile.index, profile.values,
-                 label=month_names[month - 1], color=colors[month - 1], linewidth=1.5)
-    ax2.axhline(avg_power, color='black', linestyle='--', linewidth=2,
-                label=f'Overall Mean: {avg_power:.1f} W')
-    ax2.set_title("Max Available Power by Hour of Day per Month")
-    ax2.set_xlabel("Hour of Day UTC")
-    ax2.set_ylabel("Power (W)")
-    ax2.set_xticks(range(0, 24))
-    ax2.legend(loc='upper right', ncol=4, fontsize=8)
-    ax2.grid(True, alpha=0.3)
+# ── Plot 2: One curve per HOUR of day ────────────────────────────────────────
+for h in range(24):
+    ax2.plot(radii, power_by_hour[h],
+             color=hour_colors[h], linewidth=1.4)
 
-    plt.tight_layout()
-    plt.show()
+ax2.plot(radii, power_grand,
+         color='black', linewidth=2.5, linestyle='--',
+         label='Overall Mean', zorder=5)
 
-print("\nAll simulations complete.")
+ax2.set_title("By Hour of Day (UTC)", fontsize=11)
+ax2.set_xlabel("Blade Radius (m)", fontsize=11)
+ax2.set_ylabel("Betz Limit Power (W)", fontsize=11)
+ax2.grid(True, alpha=0.3)
+ax2.set_xlim(min_radius, max_radius)
+ax2.set_ylim(bottom=0)
+
+# Colour-bar for hours
+sm = cm.ScalarMappable(cmap='plasma', norm=plt.Normalize(vmin=0, vmax=23))
+sm.set_array([])
+cbar = fig.colorbar(sm, ax=ax2, pad=0.02, aspect=30)
+cbar.set_label("Hour of Day (UTC)", fontsize=10)
+cbar.set_ticks([0, 6, 12, 18, 23])
+cbar.set_ticklabels(['00:00', '06:00', '12:00', '18:00', '23:00'])
+
+ax2.legend(handles=[
+    Line2D([0], [0], color='black', linewidth=2.5,
+           linestyle='--', label='Overall Mean')
+], fontsize=9, loc='upper left')
+
+plt.tight_layout()
+plt.savefig("hawt_radius_vs_power.png", dpi=150, bbox_inches='tight')
+plt.show()
+print("Done — plot saved as hawt_radius_vs_power.png")
